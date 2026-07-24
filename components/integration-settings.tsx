@@ -3,19 +3,24 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "./app-shell";
 
-type Connection = { siteUrl: string; apiKey: string; savedAt?: string };
+type Connection = { siteUrl: string; projectId: string; apiKey: string; savedAt?: string };
 const key = "jira-connect:connection";
 
 export function IntegrationSettings() {
-  const [connection, setConnection] = useState<Connection>({ siteUrl: "", apiKey: "" });
+  const [connection, setConnection] = useState<Connection>({ siteUrl: "", projectId: "", apiKey: "" });
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   useEffect(() => {
     const stored = localStorage.getItem(key);
     if (stored) setConnection(JSON.parse(stored));
   }, []);
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault();
-    const value = { ...connection, siteUrl: connection.siteUrl.replace(/\/$/, ""), savedAt: new Date().toISOString() };
+    setSaveError("");
+    const projectId = connection.projectId.trim();
+    const scopeResponse = await fetch("/api/project-scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId }) });
+    if (!scopeResponse.ok) { const data = await scopeResponse.json(); setSaveError(data.message ?? "프로젝트 ID를 저장하지 못했습니다."); return; }
+    const value = { ...connection, siteUrl: connection.siteUrl.replace(/\/$/, ""), projectId, savedAt: new Date().toISOString() };
     localStorage.setItem(key, JSON.stringify(value));
     void fetch("/api/auth/logout", { method: "POST" });
     setConnection(value); setSaved(true);
@@ -25,8 +30,10 @@ export function IntegrationSettings() {
     <div className="settings-grid"><form className="card settings-card" onSubmit={save}>
       <div className="card-title"><div><h2>워크스페이스 연결</h2><p>테스트용 연결 정보는 이 브라우저에만 저장됩니다.</p></div><span className="local-badge">Local storage</span></div>
       <label>Jira 사이트 주소<input required type="url" placeholder="https://team.atlassian.net" value={connection.siteUrl} onChange={(e) => setConnection({ ...connection, siteUrl: e.target.value })} /></label>
+      <label>Jira 프로젝트 ID 또는 키<input required value={connection.projectId} onChange={(e) => setConnection({ ...connection, projectId: e.target.value.toUpperCase() })} /><span className="input-note">필수값입니다. 숫자 프로젝트 ID 또는 영문 프로젝트 키를 입력하세요. 저장한 프로젝트에서만 티켓을 조회·생성·수정합니다.</span></label>
       <label>Space API Key<input required type="password" placeholder="테스트 API 키를 입력하세요" value={connection.apiKey} onChange={(e) => setConnection({ ...connection, apiKey: e.target.value })} /></label>
       <p className="form-note">이 프로토타입에서는 키를 서버로 전송하지 않으며, 동일 브라우저에서만 조회됩니다. 사이트를 변경해 저장하면 이전 OAuth 연결은 해제됩니다.</p>
+      {saveError && <div className="alert error"><span>!</span>{saveError}</div>}
       <button className="button primary" type="submit">{saved ? "저장되었습니다" : "연결 정보 저장"}</button>
       {connection.savedAt && <span className="saved-time">최근 저장: {new Date(connection.savedAt).toLocaleString("ko-KR")}</span>}
     </form>
